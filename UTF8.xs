@@ -57,9 +57,7 @@ xs_utf8_check(const U8 *s, const STRLEN len) {
                     /* Non-shortest form */
                     v < 0x00E0A080 ||
                     /* Surrogates U+D800..U+DFFF */
-                    (v & 0x00EFA080) == 0x00EDA080 ||
-                    /* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
-                    (v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE)))
+                    (v & 0x00EFA080) == 0x00EDA080)
                     goto done;
                 p += 3;
                 break;
@@ -73,9 +71,7 @@ xs_utf8_check(const U8 *s, const STRLEN len) {
                     /* Non-shortest form */
                     v < 0xF0908080 ||
                     /* Greater than U+10FFFF */
-                    v > 0xF48FBFBF ||
-                    /* Non-characters U+nFFFE..U+nFFFF on plane 1-16 */
-                    (v & 0x000FBFBE) == 0x000FBFBE)
+                    v > 0xF48FBFBF)
                     goto done;
                 p += 4;
                 break;
