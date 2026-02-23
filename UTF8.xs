@@ -5,105 +5,111 @@
 #define NEED_sv_2pv_flags
 #include "ppport.h"
 
-static const U8 xs_utf8_sequence_len[0x100] = {
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x00-0x0F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x10-0x1F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x20-0x2F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x30-0x3F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x40-0x4F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x50-0x5F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x60-0x6F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x70-0x7F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x80-0x8F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x90-0x9F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xA0-0xAF */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xB0-0xBF */
-    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
-    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xD0-0xDF */
-    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, /* 0xE0-0xEF */
-    4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
-};
+static size_t
+xs_utf8_check_sequence_units(const U8 *p) {
+  U32 v;
 
-static STRLEN
-xs_utf8_check(const U8 *s, const STRLEN len) {
-    const U8 *p = s;
-    const U8 *e = s + len;
-    const U8 *e4 = e - 4;
-    U32 v;
+  memcpy(&v, p, 4);
+#if defined(BYTEORDER) && (BYTEORDER == 0x4321 || BYTEORDER == 0x87654321)
+  v = ((v & 0xFF000000) >> 24) |
+      ((v & 0x00FF0000) >>  8) |
+      ((v & 0x0000FF00) <<  8) |
+      ((v & 0x000000FF) << 24);
+#elif !defined(BYTEORDER) || !(BYTEORDER == 0x1234 || BYTEORDER == 0x12345678)
+  #error "Unknown byte order"
+#endif
 
-    while (p < e4) {
-        while (p < e4 && *p < 0x80)
-            p++;
+  if ((v & 0x80808080) == 0)
+    return 4;
 
-      check:
-        switch (xs_utf8_sequence_len[*p]) {
-            case 0:
-                goto done;
-            case 1:
-                p += 1;
-                break;
-            case 2:
-                /* 110xxxxx 10xxxxxx */
-                if ((p[1] & 0xC0) != 0x80)
-                    goto done;
-                p += 2;
-                break;
-            case 3:
-                v = ((U32)p[0] << 16)
-                  | ((U32)p[1] <<  8)
-                  | ((U32)p[2]);
-                /* 1110xxxx 10xxxxxx 10xxxxxx */
-                if ((v & 0x00F0C0C0) != 0x00E08080 ||
-                    /* Non-shortest form */
-                    v < 0x00E0A080 ||
-                    /* Surrogates U+D800..U+DFFF */
-                    (v & 0x00EFA080) == 0x00EDA080)
-                    goto done;
-                p += 3;
-                break;
-            case 4:
-                v = ((U32)p[0] << 24)
-                  | ((U32)p[1] << 16)
-                  | ((U32)p[2] <<  8)
-                  | ((U32)p[3]);
-                /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                if ((v & 0xF8C0C0C0) != 0xF0808080 ||
-                    /* Non-shortest form */
-                    v < 0xF0908080 ||
-                    /* Greater than U+10FFFF */
-                    v > 0xF48FBFBF)
-                    goto done;
-                p += 4;
-                break;
-        }
-    }
-    if (p < e && p + xs_utf8_sequence_len[*p] <= e)
-        goto check;
-  done:
-    return p - s;
+  if ((v & 0x80) == 0)
+    return 1;
+
+  if ((v & 0xC0E0) == 0x80C0) {
+    if ((v & 0x1E) == 0)
+      return 0;
+    return 2;
+  }
+
+  if ((v & 0xC0C0F0) == 0x8080E0) {
+    v = v & 0x00200F;
+    if (v == 0 || v == 0x00200D)
+      return 0;
+    return 3;
+  }
+
+  if ((v & 0xC0C0C0F8) == 0x808080F0) {
+    v = ((v & 0x07) << 4) | ((v & 0x3000) >> 12);
+    if (v == 0 || v > 0x40)
+      return 0;
+    return 4;
+  }
+
+  return 0;
 }
 
 static STRLEN
-xs_utf8_skip(const U8 *s, const STRLEN len) {
-    STRLEN i, n = xs_utf8_sequence_len[*s];
+xs_utf8_check(const U8 *src, const STRLEN len) {
+  const U8 *cur = src;
+  const U8 *end = cur + len;
+  size_t count;
+  U8 buf[4];
 
-    if (n < 1 || len < 2)
-        return 1;
-
-    switch (s[0]) {
-        case 0xE0: if ((s[1] & 0xE0) != 0xA0) return 1; break;
-        case 0xED: if ((s[1] & 0xE0) != 0x80) return 1; break;
-        case 0xF4: if ((s[1] & 0xF0) != 0x80) return 1; break;
-        case 0xF0: if ((s[1] & 0xF0) == 0x80) return 1; /* FALLTROUGH */
-        default:   if ((s[1] & 0xC0) != 0x80) return 1; break;
+  while (cur < end) {
+    const U8 *p = cur;
+    if (cur > end - 4) {
+      memset(buf, 0xFF, 4);
+      memcpy(buf, cur, end - cur);
+      p = buf;
     }
+    count = xs_utf8_check_sequence_units(p);
+    if (!count)
+      break;
+    cur += count;
+  }
 
-    if (n > len)
-        n = len;
-    for (i = 2; i < n; i++)
-        if ((s[i] & 0xC0) != 0x80)
-            break;
-    return i;
+  return cur - src;
+}
+
+static STRLEN
+xs_utf8_skip(const U8 *src, const STRLEN len) {
+  U32 v;
+
+  if (len < 2)
+    return len;
+
+  v = (src[0] << 8) | src[1];
+  if ((v & 0xC0C0) != 0xC080)
+    return 1;
+
+  if ((v & 0x2000) == 0) {
+    v = v & 0x1E00;
+    if (v == 0)
+      return 1;
+    return 2;
+  }
+
+  if ((v & 0x1000) == 0) {
+    v = v & 0x0F20;
+    if (v == 0 || v == 0x0D20)
+      return 1;
+    if (len < 3 || (src[2] & 0xC0) != 0x80)
+      return 2;
+    return 3;
+  }
+
+  if ((v & 0x0800) == 0) {
+    v = v & 0x0730;
+    if (v == 0 || v > 0x0400)
+      return 1;
+    if (len < 3 || (src[2] & 0xC0) != 0x80)
+      return 2;
+    if (len < 4 || (src[3] & 0xC0) != 0x80)
+      return 3;
+    return 4;
+  }
+
+  return 1;
 }
 
 #ifndef WARN_NON_UNICODE
