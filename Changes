@@ -1,4 +1,4 @@
-0.64
+0.64 2026-02-23
  - Unicode::UTF8 now allows noncharacters; they receive no special handling 
    and are processed like any other code point.
 
