@@ -84,45 +84,6 @@ xs_utf8_check(const U8 *s, const STRLEN len) {
 }
 
 static STRLEN
-xs_utf8_unpack(const U8 *s, const STRLEN len, UV *usv) {
-    const STRLEN n = xs_utf8_sequence_len[*s];
-    STRLEN i;
-
-    if (n > len)
-        return 0;
-
-    for (i = 1; i < n; i++)
-        if ((s[i] & 0xC0) != 0x80)
-            return 0;
-
-    switch (n) {
-        case 1:
-            *usv = (UV)s[0];
-            break;
-        case 2:
-            *usv = ((UV)(s[0] & 0x1F) << 6)
-                 | ((UV)(s[1] & 0x3F));
-            break;
-        case 3:
-            *usv = ((UV)(s[0] & 0x0F) << 12)
-                 | ((UV)(s[1] & 0x3F) <<  6)
-                 | ((UV)(s[2] & 0x3F));
-            if (*usv < 0x800 || (*usv & 0xF800) == 0xD800)
-                return 0;
-            break;
-        case 4:
-            *usv = ((UV)(s[0] & 0x07) << 18)
-                 | ((UV)(s[1] & 0x3F) << 12)
-                 | ((UV)(s[2] & 0x3F) <<  6)
-                 | ((UV)(s[3] & 0x3F));
-            if (*usv < 0x10000 || *usv > 0x10FFFF)
-                return 0;
-            break;
-    }
-    return n;
-}
-
-static STRLEN
 xs_utf8_skip(const U8 *s, const STRLEN len) {
     STRLEN i, n = xs_utf8_sequence_len[*s];
 
@@ -159,10 +120,6 @@ xs_report_unmappable(pTHX_ const UV cp, const STRLEN pos) {
     if (cp > 0x10FFFF) {
         fmt = "Can't represent super code point \\x{%"UVXf"} in position %"UVuf;
         cat = WARN_NON_UNICODE;
-    }
-    else if (cp >= 0xFDD0 && (cp <= 0xFDEF || (cp & 0xFFFE) == 0xFFFE)) {
-        fmt = "Can't interchange noncharacter code point U+%"UVXf" in position %"UVuf;
-        cat = WARN_NONCHAR;
     }
     else if ((cp & 0xF800) == 0xD800) {
         fmt = "Can't represent surrogate code point U+%"UVXf" in position %"UVuf;
@@ -249,14 +206,10 @@ xs_handle_fallback(pTHX_ SV *dsv, CV *fallback, SV *val, UV usv, STRLEN pos) {
 
 static void
 xs_utf8_decode_replace(pTHX_ SV *dsv, const U8 *src, STRLEN len, STRLEN off, CV *fallback) {
-#if PERL_REVISION == 5 && PERL_VERSION >= 14
-    const bool do_warn = ckWARN2_d(WARN_UTF8, WARN_NONCHAR);
-#else
     const bool do_warn = ckWARN_d(WARN_UTF8);
-#endif
+
     STRLEN pos = 0;
     STRLEN skip;
-    UV usv;
 
     (void)SvUPGRADE(dsv, SVt_PV);
     (void)SvGROW(dsv, off + 1);
@@ -270,21 +223,15 @@ xs_utf8_decode_replace(pTHX_ SV *dsv, const U8 *src, STRLEN len, STRLEN off, CV 
 
         skip = xs_utf8_skip(src, len);
 
-        if ((do_warn || fallback) && !xs_utf8_unpack(src, skip, &usv))
-            usv = 0;
-
         if (do_warn) {
-            if (usv)
-                xs_report_unmappable(aTHX_ usv, pos);
-            else
-                xs_report_illformed(aTHX_ src, skip, "UTF-8", pos, FALSE);
+            xs_report_illformed(aTHX_ src, skip, "UTF-8", pos, FALSE);
         }
 
         sv_catpvn_nomg(dsv, (const char *)src - off, off);
 
         if (fallback) {
             SV *octets = newSVpvn((const char *)src, skip);
-            xs_handle_fallback(aTHX_ dsv, fallback, octets, usv, pos);
+            xs_handle_fallback(aTHX_ dsv, fallback, octets, 0, pos);
         }
         else
             sv_catpvn_nomg(dsv, "\xEF\xBF\xBD", 3);
