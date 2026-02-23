@@ -33,6 +33,7 @@ name           'Unicode-UTF8';
 perl_version   '5.008001';
 all_from       'lib/Unicode/UTF8.pm';
 repository     'http://github.com/chansen/p5-unicode-utf8';
+bugtracker     'https://github.com/chansen/p5-unicode-utf8/issues';
 readme_from    'lib/Unicode/UTF8.pod';
 
 requires       'Carp'        => '0';
