@@ -54,6 +54,14 @@ xs_utf8_check(const U8 *src, const STRLEN len) {
   size_t pos = 0;
 
   while (pos < len) {
+    for (; len - pos >= 16; pos += 16) {
+      uint64_t v1, v2;
+      memcpy(&v1, src + pos, sizeof(uint64_t));
+      memcpy(&v2, src + pos + sizeof(uint64_t), sizeof(uint64_t));
+      if (((v1 | v2) & UINT64_C(0x8080808080808080)) != 0)
+        break;
+    }
+
     const U8 *p = src + pos;
     if (len - pos < 4) {
       memset(buf, 0xFF, 4);
