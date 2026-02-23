@@ -5,7 +5,7 @@
 #define NEED_sv_2pv_flags
 #include "ppport.h"
 
-static size_t
+static inline size_t
 xs_utf8_check_sequence_units(const U8 *p) {
   U32 v;
 
@@ -48,7 +48,7 @@ xs_utf8_check_sequence_units(const U8 *p) {
   return 0;
 }
 
-static STRLEN
+static inline STRLEN
 xs_utf8_check(const U8 *src, const STRLEN len) {
   const U8 *cur = src;
   const U8 *end = cur + len;

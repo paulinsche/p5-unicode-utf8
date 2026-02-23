@@ -49,5 +49,6 @@ tests 't/*.t t/*/*.t';
 
 ppport;
 requires_external_cc;
+requires_c99;
 
 WriteAll;
