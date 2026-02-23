@@ -50,25 +50,23 @@ xs_utf8_check_sequence_units(const U8 *p) {
 
 static inline STRLEN
 xs_utf8_check(const U8 *src, const STRLEN len) {
-  const U8 *cur = src;
-  const U8 *end = cur + len;
-  size_t count;
   U8 buf[4];
+  size_t pos = 0;
 
-  while (cur < end) {
-    const U8 *p = cur;
-    if (cur > end - 4) {
+  while (pos < len) {
+    const U8 *p = src + pos;
+    if (len - pos < 4) {
       memset(buf, 0xFF, 4);
-      memcpy(buf, cur, end - cur);
+      memcpy(buf, p, len - pos);
       p = buf;
     }
-    count = xs_utf8_check_sequence_units(p);
+    size_t count = xs_utf8_check_sequence_units(p);
     if (!count)
       break;
-    cur += count;
+    pos += count;
   }
 
-  return cur - src;
+  return pos;
 }
 
 static STRLEN
